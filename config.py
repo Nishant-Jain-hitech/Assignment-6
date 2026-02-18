@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     ALGORITHM:str
     ACCESS_TOKEN_EXPIRE_MINUTES:int
     DATABASE_URL:str
+
+    SMTP_SERVER: str
+    SMTP_PORT: int
+    EMAIL_ADDRESS: str
+    EMAIL_PASSWORD: str
     
     model_config=SettingsConfigDict(env_file=".env")
     

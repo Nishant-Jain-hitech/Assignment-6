@@ -1,17 +1,20 @@
+from datetime import timezone
+from schemas import ResetPassword
+import secrets
 from schemas import ChangeEmail
 from helper import check_mail
 import bcrypt
-import re
-from schemas import ChangePassword
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from schemas import ChangePassword
 from auth import create_access_token, get_current_user, hash_password, verify_password
 from database import get_db
 from models import User
 from schemas import Token, UserCreate, UserLogin, UserProfile, VerifyEmail
-from config import settings
-from helper import generate_otp, verify_otp, send_mail
+from helper import generate_otp, send_mail
 
 
 router = APIRouter()
@@ -110,11 +113,12 @@ def change_password(
         db.commit()
         return {"message": "Password badal gya bhai"}
 
-    raise HTTPException(status_code=400, detail="invalid credentials")
+    raise HTTPException(status_code=403, detail="invalid credentials")
 
 
-@router.put("/change-email")
-def change_email(data:ChangeEmail, current_user: User = Depends(get_current_user), db:Session=Depends(get_db)):
+@router.post("/request-email-change")
+def request_email_change(data:ChangeEmail,current_user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+
     if not current_user or not current_user.is_active:
         raise HTTPException(status_code=400, detail="nhi hoga bhai")
 
@@ -125,8 +129,33 @@ def change_email(data:ChangeEmail, current_user: User = Depends(get_current_user
     if existing_email:
         raise HTTPException(status_code=400, detail="bhai pehle se h, kuchh or try kar")
 
+    otp=generate_otp()
+    current_user.otp=otp
+    db.commit()
+
+    send_mail(otp,current_user.email)
+
+    return {"message":"otp gya bhai current email pe"}
+
+
+@router.put("/change-email")
+def change_email(data:ChangeEmail, otp:int, current_user: User = Depends(get_current_user), db:Session=Depends(get_db)):
+    if not current_user or not current_user.is_active:
+        raise HTTPException(status_code=400, detail="nhi hoga bhai")
+
+    if current_user.otp != otp:
+        raise HTTPException(status_code=400, detail="otp sahi nhi h bhai")
+
+    if not check_mail(data.new_email):
+        raise HTTPException(status_code=400, detail="bhai email likhna nhi aata kya")
+
+    existing_email=db.query(User).filter(User.email==data.new_email).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="bhai pehle se h, kuchh or try kar")
+
 
     current_user.email=data.new_email
+    current_user.otp=None
 
     access_token = create_access_token(data={"sub": current_user.email})
 
@@ -134,3 +163,43 @@ def change_email(data:ChangeEmail, current_user: User = Depends(get_current_user
     return {"message":"kar diya bhai email change", "access_token":access_token, "token_type":"bearer"}
 
     
+@router.post("/forgot-password")
+def forgot_password(data:ChangeEmail, db:Session=Depends(get_db)):
+    message="If the account exists, reset instructions have been sent."
+    if not check_mail(data.new_email):
+        raise HTTPException(status_code=400, detail="bhai email likhna nhi aata kya")
+
+    db_user=db.query(User).filter(User.email==data.new_email).first()
+
+    if db_user and db_user.is_active:
+        reset_token=secrets.token_urlsafe(32)
+        expiry_time=datetime.now()+timedelta(minutes=15)
+
+        db_user.reset_token=reset_token
+        db_user.reset_token_expiry=expiry_time
+
+        db.commit()
+
+    return {"message":message}
+
+
+@router.post("/reset-password")
+def reset_password(data:ResetPassword,reset_token:str,db:Session=Depends(get_db)):
+    incoming_token=reset_token.strip()
+    db_user=db.query(User).filter(func.trim(User.reset_token)==incoming_token).first()
+
+    if not db_user:
+        raise HTTPException(status_code=401, detail="token nhi h bhai")
+
+    if db_user.reset_token_expiry<datetime.now():
+        db_user.reset_token=None
+        db_user.reset_token_expiry=None
+        db.commit()
+        raise HTTPException(status_code=401, detail="token expire bhai")
+
+    db_user.password=hash_password(data.new_password)
+    db_user.reset_token=None
+    db_user.reset_token_expiry=None
+    db.commit()
+    return {"message":"password badal gya bhai"}
+

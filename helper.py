@@ -1,8 +1,12 @@
 import re
-import smtplib
-import random
 import math
-from fastapi import HTTPException
+import random
+import smtplib
+
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+from config import settings
 
 def generate_otp():
     digits = "0123456789"
@@ -12,20 +16,30 @@ def generate_otp():
     return otp
 
 
-def send_mail(otp,receiver_mail):
-    sender_mail = "test@example.com"
-    
+def send_mail(otp:int, to_email:str):
     subject = "Your OTP Verification Code"
-    body = f"Your OTP is {otp}. It is valid for 5 minutes."
-    msg = f"Subject: {subject}\n\n{body}"
-    
-    try:
-        server = smtplib.SMTP('localhost', 1025)
-        server.sendmail(sender_mail, receiver_mail, msg)
-        server.quit()
-        print(f"Postman Test: Mail sent to {receiver_mail}")
-    except ConnectionRefusedError:
-        print("Error")
+    body = f"""
+    Hello,
+ 
+    Your OTP code is: {otp}
+ 
+    Please use this to verify your account.
+ 
+    Thank you!
+    """
+ 
+    msg = MIMEMultipart()
+    msg["From"] = settings.EMAIL_ADDRESS
+    msg["To"] = to_email
+    msg["Subject"] = subject
+ 
+    msg.attach(MIMEText(body, "plain"))
+ 
+    server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
+    server.starttls()
+    server.login(settings.EMAIL_ADDRESS, settings.EMAIL_PASSWORD)
+    server.sendmail(settings.EMAIL_ADDRESS, to_email, msg.as_string())
+    server.quit()
     
     
 def verify_otp(generated_otp):
