@@ -25,7 +25,6 @@ class Token(BaseModel):
 class UserProfile(BaseModel):
     id: int
     email: str
-    otp: int
     isverified: bool
     is_active: bool
     reset_token: str|None=None
@@ -35,3 +34,12 @@ class UserProfile(BaseModel):
 class VerifyEmail(BaseModel):
     email: str
     otp: int
+
+
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class ChangeEmail(BaseModel):
+    new_email: str
